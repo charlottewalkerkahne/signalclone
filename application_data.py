@@ -72,6 +72,7 @@ TYPE_APP_UPDATE = 5
 
 REQUEST_ACTIVE_USERS = 6
 REQUEST_UNDELIVERED_MESSAGES = 7
+ACK_FETCHED_MESSAGES = 8
 
 
 
@@ -154,7 +155,6 @@ def is_valid_dm(body):
     return True
 
 def valid_dm_control_content(content, control_type):
-    print("DECODING DM CONTROL")
     if control_type == DM_CONTROL_NEW_CONVO:
         if type(content) != type([]):
             #print("Expected a list")

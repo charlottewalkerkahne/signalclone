@@ -110,7 +110,6 @@ def dh_exchange(local_dh, peer_dh):
 #and returns the key material that will be used to compute sk
 #all local keys must be private keys to perform each dh step
 def x3dh_exchange_initiator(ik_local, spk_peer, ek_local, ik_peer, otk_peer):
-    print(get_dh_public_bytes(ik_local.public_key()))
     dh1 = dh_exchange(ik_local, spk_peer)
     dh2 = dh_exchange(ek_local, ik_peer)
     dh3 = dh_exchange(ek_local, spk_peer)

@@ -126,6 +126,7 @@ class GestureUi(QtWidgets.QMainWindow):
         self.chatInput.installEventFilter(self)
         self.chatInput.textChanged.connect(self.resize_input_field)
 
+        self.input_text = {} #convo_id: unsent text
 
         self.current_convo_id = None
 

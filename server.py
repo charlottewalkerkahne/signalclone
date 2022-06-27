@@ -78,6 +78,7 @@ class Server:
         if decoded_data is not None:
             header, body = decoded_data
             if header["SOURCE_ID"] != utils.encode_64(source_id):
+                #possible spoofing attempt
                 pass
             else:
                 message_type = header["MESSAGE_TYPE"]
@@ -88,6 +89,8 @@ class Server:
                         messages.sort(key = lambda x: x[1])
                         for undelivered_message in messages:
                             self.clients[source_id].raw_send(undelivered_message[0])
+                    elif request_type == application_data.ACK_FETCHED_MESSAGES:
+                        pass
                     else:
                         print("No other request types are implemented for the server")
                 else:

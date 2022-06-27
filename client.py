@@ -166,8 +166,8 @@ class Client:
     def process_dm_control(self, source_id, body):
         if application_data.is_valid_dm_control(body):
             if body['CONTROL_TYPE'] == application_data.DM_CONTROL_NEW_CONVO:
-                salt = utils.encode_64(body['SALT'])
-                participant_list = list(map(lambda i: utils.encode_64(i.encode()), body['CONTENT']))
+                salt = utils.decode_64(body['SALT'])
+                participant_list = list(map(lambda i: utils.decode_64(i), body['CONTENT']))
                 verified_usernames = {}
                 for participant_id in participant_list:
                     if participant_id != self.sock.keyring.identity_id:
@@ -186,7 +186,7 @@ class Client:
 
     def process_dm(self, source_id, body):
         if application_data.is_valid_dm(body):
-            convo_id = utils.encode_64(body['CONVERSATION_ID'])
+            convo_id = utils.decode_64(body['CONVERSATION_ID'])
             attachment_name = body['ATTACHMENT']
             timestamp = body["TIMESTAMP"]
             msg_content = body['CONTENT']
@@ -198,7 +198,7 @@ class Client:
                         self.new_messages[convo_id] = []
                     self.new_messages[convo_id].append((source_id, body))
             else:
-                pass
+                print("Unrecognized conversation id")
         else:
             self.send_decoding_error(source_id)
 
