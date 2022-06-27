@@ -1,5 +1,6 @@
 import os
 import time
+import utils
 import crypto
 import struct
 import messages
@@ -382,6 +383,7 @@ class SecureSock:
                 body_type = struct.unpack("!B", frame_body[:1])[0]
                 return self.process_frame(body_type, frame_body, len(frame_body))
             else:
+                print("Got a bad signature from {}".format(utils.encode_64(source)))
                 return messages.SIGNED_ERROR_BAD_SIGNATURE
         else:
             return messages.UNAUTHORIZED_PEER
@@ -396,7 +398,6 @@ class SecureSock:
             self.connection_id = source
         else:
             self.connection_id = None
-            print("Handshake error")
             return messages.HANDSHAKE_ERROR
     def process_handshake_response(self, frame_header):
         frame_type, length, source, dest, frame_id, dh_info = frame_header
@@ -407,7 +408,6 @@ class SecureSock:
             self.secured = True
             self.connection_id = peer_id
         else:
-            print("HANDSHAKE ERROR")
             return messages.HANDSHAKE_ERROR
     def process_prekey_bundle_response(self, frame_header, frame_body):
         frame_type, length, source, dest, frame_id, signing_client_id, spk, sig = frame_header

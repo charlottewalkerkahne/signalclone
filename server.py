@@ -74,7 +74,6 @@ class Server:
         if decoded_data is not None:
             header, body = decoded_data
             if header["SOURCE_ID"] != utils.encode_64(source_id):
-                #possible spoofing attempt
                 pass
             else:
                 message_type = header["MESSAGE_TYPE"]
@@ -149,10 +148,6 @@ def start_server(address, addressbook, keyring, ms):
     server.start_accepting()
     while server.running:
         print("Memory in use: {}".format(tracemalloc.get_traced_memory()))
-        print("pending sockets: {}".format(len(server.pending_sockets)))
-        print("clients: {}".format(len(server.clients)))
-        print("closed sockets: {}".format(len(server.closed_sockets)))
-        #gc.collect()
         sleep(5)
     server.accepting_thread.join()
     server.ticktock_thread.join()
