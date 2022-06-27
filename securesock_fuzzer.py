@@ -16,7 +16,7 @@ def send_data(data):
     testsock = utils.init_socket()
     try:
         testsock.connect(SERVER_ADDRESS)
-    except connectionError:
+    except ConnectionError:
         print(data)
         exit(-1)
 
@@ -74,7 +74,7 @@ def get_authenticated_socket():
 
 def fuzz_authenticated():
     testclient = get_authenticated_socket()
-    for i in range(0, 65535):
+    for i in range(0, 65535 - 35):
         if testclient.sock.closed:
             testclient = get_authenticated_socket()
         fuzz_random_authenticated(testclient, i)
@@ -85,4 +85,4 @@ def fuzz_authenticated():
 
 if __name__=="__main__":
     fuzz_unauthenticated()
-    #fuzz_authenticated()
+    fuzz_authenticated()

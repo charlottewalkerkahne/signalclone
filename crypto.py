@@ -268,10 +268,11 @@ class MemoryKeyStore:
 
     def save_ratchet(self, session_id, peer_id=None):
         session_ratchet = self.ratchets[session_id]
+        ratchet_json = session_ratchet.to_json()
         if peer_id is None:
-            self.keystorage.update_ratchet(session_id, session_ratchet.to_json())
+            self.keystorage.update_ratchet(session_id, ratchet_json)
         else:
-            self.keystorage.insert_new_ratchet(session_id, peer_id, session_ratchet.to_json())
+            self.keystorage.insert_new_ratchet(session_id, peer_id, ratchet_json)
 
     #loads the identity keys for a single peer
     #returns True if peer exists and false otherwise

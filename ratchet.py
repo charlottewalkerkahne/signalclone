@@ -29,8 +29,9 @@ class Ratchet:
         cks = None
         ckr = None
         if len(ratchet_dict['mkskipped']) > 0:
-            for (dh, n), mk in ratchet_dict['mkskipped'].items():
-                mkskipped[utils.decode_64(dh), n] = utils.decode_64(mk)
+            for dh_n, mk in ratchet_dict['mkskipped'].items():
+                dh, n = dh_n.split(' ')
+                mkskipped[utils.decode_64(dh), int(n)] = utils.decode_64(mk)
         if ratchet_dict['dhs'] is not None:
             dhs = crypto.get_private_dh_key_from_bytes(utils.decode_64(ratchet_dict['dhs']))
         if ratchet_dict['dhr'] is not None:
@@ -82,9 +83,11 @@ class Ratchet:
             mkskipped = {}
             for (dh, ns), mk in self.mkskipped.items():
                 if type(dh) != type(b"\x00"):
-                    mkskipped[(utils.encode_64(crypto.get_dh_public_bytes(dh)), ns)] = utils.encode_64(mk)
+                    key = utils.encode_64(crypto.get_dh_public_bytes(dh)) + " " + ns
+                    mkskipped[key] = utils.encode_64(mk)
                 else:
-                    mkskipped[(utils.encode_64(dh), ns)] = utils.encode_64(mk)
+                    key = utils.encode_64(dh) + " " + str(ns)
+                    mkskipped[key] = utils.encode_64(mk)
             json_dict['mkskipped'] = mkskipped
         else:
             json_dict['mkskipped'] = self.mkskipped

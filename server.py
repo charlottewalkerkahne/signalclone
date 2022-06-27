@@ -1,3 +1,4 @@
+import time
 import utils
 import crypto
 import storage
@@ -11,7 +12,7 @@ from securesock import SecureSock
 
 BINDWAIT=5
 
-
+CONNECT_TIMEOUT = 2
 
 class Server:
     def __init__(self, keyring, sock, addressbook, message_store):
@@ -54,9 +55,8 @@ class Server:
         while self.running:
             if self.should_accept():
                 new_connection, addr = self.sock.accept()
-                print("new connection")
                 new_client = SecureSock(new_connection, self.keyring)
-                self.pending_sockets[addr] = new_client
+                self.pending_sockets[addr] = (new_client, time.time())
     def stop(self):
         self.accepting = False
     def route_message(self, frame, source_id, dest_id):
@@ -101,31 +101,33 @@ class Server:
             self.closed_sockets.append(sock.connection_id)
     def tick(self):
         while self.running:
-            print("running")
             clients_iterable = self.clients.items()
             for peer_id,sock_obj in clients_iterable:
                 self.update_sock(sock_obj)
-            processed_sockets = []
-            pending_sock_items = list(self.pending_sockets.items()) #create list to avoid race condition
-            for addr,sock_obj in pending_sock_items:
-                if sock_obj.connection_id != None:
-                    if self.is_valid_id(sock_obj.connection_id):
-                        processed_sockets.append(addr)
-                        self.clients[sock_obj.connection_id] = sock_obj
-                    else:
-                        sock_obj.shutdown()
-                        del sock_obj
-                else:
-                    processed_sockets.append(addr)
+            pending_sock_addresses = list(self.pending_sockets.keys())
+            for addr in pending_sock_addresses:
+                sock_obj = self.pending_sockets[addr][0]
+                timestamp = self.pending_sockets[addr][1]
                 self.update_sock(sock_obj)
-            print("length of processed sockets: {}".format(len(processed_sockets)))
-            for addr in processed_sockets:
-                del self.pending_sockets[addr]
+                if sock_obj.connection_id is not None:
+                    if sock_obj.channel_secured(sock_obj.connection_id):
+                        if self.is_valid_id(sock_obj.connection_id):
+                            self.clients[sock_obj.connection_id] = sock_obj
+                            del self.pending_sockets[addr]
+                        else:
+                            del self.pending_sockets[addr]
+                    else:
+                        current_time = time.time()
+                        if current_time - timestamp >= CONNECT_TIMEOUT:
+                            del self.pending_sockets[addr]
+                else:
+                    current_time = time.time()
+                    if current_time - timestamp >= CONNECT_TIMEOUT:
+                        del self.pending_sockets[addr]
             for id in self.closed_sockets:
                 if id in self.clients:
                     del self.clients[id]
-            del processed_sockets
-            del pending_sock_items
+            del pending_sock_addresses
             self.closed_sockets = []
             self.tock()
     def tock(self):
@@ -147,7 +149,9 @@ def start_server(address, addressbook, keyring, ms):
     server.start_accepting()
     while server.running:
         print("Memory in use: {}".format(tracemalloc.get_traced_memory()))
-        print(len(server.pending_sockets))
+        print("pending sockets: {}".format(len(server.pending_sockets)))
+        print("clients: {}".format(len(server.clients)))
+        print("closed sockets: {}".format(len(server.closed_sockets)))
         #gc.collect()
         sleep(5)
     server.accepting_thread.join()

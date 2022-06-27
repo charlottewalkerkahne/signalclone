@@ -514,6 +514,7 @@ class GestureUi(QtWidgets.QMainWindow):
                 else:
                     print(err)
         else:
+            self.updateTimer.stop()
             self.client.disconnect()
             self.connectionLabel.setText("Disconnected")
             self.connectionLabel.setStyleSheet("color: red")
@@ -523,7 +524,6 @@ class GestureUi(QtWidgets.QMainWindow):
             self.servernameInput.setEnabled(True)
             self.activeConversationList.clear()
             self.chatInput.setEnabled(False)
-            self.updateTimer.stop()
             self.client = None
             self.connectButton.setCheckable(False)
             self.connectButton.setChecked(False)

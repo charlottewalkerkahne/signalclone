@@ -1,8 +1,9 @@
 import os
+import time
 import crypto
 import struct
 import messages
-from socket import selectors
+from socket import selectors, SHUT_RDWR
 from multiprocessing import Queue
 from struct import pack, unpack, error
 DEFAULT_TIMEOUT = .1
@@ -27,6 +28,7 @@ class SecureSock:
         self.unacked_frames = {} #frame_id: [list_of_frame_bytes]
         self.current_frame_id = struct.unpack("!H", os.urandom(2))[0] #gen starting frame_id
 
+        self.saved_incomplete_packet = None
 
         self.buffer_packs = {} #frame_type: struct.Struct(frame_type format string)
         self.buffer_packs[messages.TYPE_CLEAR] = struct.Struct(messages.PACKET_HEADER_FORMAT)
@@ -45,6 +47,19 @@ class SecureSock:
         self.buffer_packs[messages.TYPE_BROADCAST_REQUEST] = struct.Struct(messages.BROADCAST_REQUEST)
         self.buffer_packs[messages.TYPE_GROUP_KEY] = struct.Struct(messages.GROUP_KEY_FRAME)
         self.buffer_packs[messages.TYPE_ERROR] = struct.Struct(messages.ERROR_FRAME_FORMAT)
+    def __del__(self):
+        if not self.closed:
+            self.sock.close()
+            self.keyring.keystorage.sync()
+            self.keyring.remove_synchronous_session(self.connection_id)
+            del self.sock
+            del self.unacked_frames
+            del self.pending_group_messages
+            del self.pending_encryption
+            del self.sock_poll
+            del self.incomplete_frames
+            del self.saved_incomplete_packet
+            self.closed = True
     def connect(self, peer_addr, peer_id):
         self.sock.setblocking(True)
         self.sock.connect(peer_addr)
@@ -65,9 +80,10 @@ class SecureSock:
             del self.pending_group_messages
             del self.pending_encryption
             del self.sock_poll
+            del self.incomplete_frames
+            del self.saved_incomplete_packet
             self.closed = True
     def update(self):
-        assert(len(self.unacked_frames) == 0)
         if self.closed:
             pass
         elif self.shutting_down:
@@ -89,48 +105,73 @@ class SecureSock:
         raw_header = None
         packet = None
         packet_received = False
-        try:
-            raw_header = self.sock.recv(3)
+        if self.saved_incomplete_packet is not None:
+            packet = self.continue_receiving_incomplete_packet()
+            packet_received = packet != None
+        else:
             try:
-                packet_type, length = unpack("!BH", raw_header)
-            except error:
-                self.shutdown()
-                packet_received = False
-            if not self.closed:
-                if packet_type == messages.TYPE_CRYPTO:
-                    length += 32
-                    packet = self.sock.recv(length)
-                    packet_received = True
-                elif packet_type == messages.TYPE_CLEAR:
-                    packet = self.sock.recv(length)
-                    packet_received = True
-                else:
-                    # the data will remain in the socket but now
-                    # we won't waste as much time deserializing bad data
+                raw_header = self.sock.recv(3)
+                try:
+                    packet_type, length = unpack("!BH", raw_header)
+                except error:
                     self.shutdown()
                     packet_received = False
+                if not self.closed:
+                    if packet_type == messages.TYPE_CRYPTO:
+                        length += 32
+                        packet = self.sock.recv(length)
+                        packet_received = True
+                    elif packet_type == messages.TYPE_CLEAR:
+                        packet = self.sock.recv(length)
+                        packet_received = True
+                    else:
+                        # the data will remain in the socket but now
+                        # we won't waste as much time deserializing bad data
+                        self.shutdown()
+                        packet_received = False
 
-        except ConnectionResetError:
-            self.shutting_down = True
-            self.shutdown()
-        except error:
-            self.shutting_down = True
-            self.shutdown()
-        except BlockingIOError:
-            assert(raw_header == None)
-            assert(packet == None)
-            socktimeout = True
-        if packet_received:
-            real_length = len(packet)
-            assert(real_length <= length and "Got bad packet length")
-            while real_length < length: #TODO MAKE SURE THIS DOESNT HANG
-                try:
-                    packet += self.sock.recv(length-real_length)
-                    real_length += len(packet)
-                except(BlockingIOError):
-                    pass
-            raw_packet = raw_header + packet
-            self.process_packet(packet_type, raw_packet, real_length)
+            except ConnectionResetError:
+                self.shutting_down = True
+                self.shutdown()
+            except error:
+                self.shutting_down = True
+                self.shutdown()
+            except BlockingIOError:
+                assert(raw_header == None)
+                assert(packet == None)
+                socktimeout = True
+            if packet_received:
+                real_length = len(packet)
+                assert(real_length <= length and "Got bad packet length")
+                if real_length < length:
+                    timestamp = time.time()
+                    self.saved_incomplete_packet = [packet, real_length, length, timestamp]
+                else:
+                    if real_length == length:
+                        if not self.closed:
+                            raw_packet = raw_header + packet
+                            self.process_packet(packet_type, raw_packet, real_length)
+    def continue_receiving_incomplete_packet(self):
+        current_length = self.saved_incomplete_packet[1]
+        new_current_length = 0
+        expected_length = self.saved_incomplete_packet[2]
+        if current_length < expected_length:
+            try:
+                self.saved_incomplete_packet[0] += self.sock.recv(expected_length - current_length)
+                new_current_length = len(self.saved_incomplete_packet[0])
+            except(BlockingIOError):
+                pass
+            except(ConnectionResetError):
+                self.shutdown()
+        if new_current_length == 0:
+            return False
+        elif new_current_length == expected_length:
+            return self.saved_incomplete_packet[0]
+        else:
+            timestamp = self.saved_incomplete_packet[3]
+            if time.time() - timestamp > 10:
+                self.shutdown()
+            return None
     def raw_send(self, frame_bytes):
         assert(type(frame_bytes) == type(b"\x00"))
         packet_bytes = None
@@ -179,12 +220,10 @@ class SecureSock:
             return None
     def process_packet(self, packet_type, raw_packet, packet_length):
         if packet_type not in self.buffer_packs:
-            print("Bad packet type")
             self.shutdown()
             return None
         buf_pack = self.buffer_packs[packet_type]
         if packet_length < buf_pack.size:
-            print("Bad length")
             self.shutdown()
             return None
         packet_header = buf_pack.unpack(raw_packet[:buf_pack.size])
@@ -192,12 +231,10 @@ class SecureSock:
         if packet_type == messages.TYPE_CRYPTO:
             session_id = packet_header[2]
             if session_id not in self.keyring.session_decryption_keys:
-                print("Bad sessiongkjhgk")
                 self.shutdown()
                 return None
             packet_body = self.keyring.session_decrypt(session_id, packet_body)
             if packet_body is None:
-                print("Bad decryption")
                 self.shutdown()
                 return None
             else:
@@ -208,12 +245,10 @@ class SecureSock:
         if length > 0:
             frame_type = struct.unpack("!B", packet_body[:1])[0]
             if frame_type not in self.buffer_packs:
-                print("bad type in clear packet")
                 self.shutdown()
                 return None
             else:
                 if frame_type != messages.TYPE_SIGNED:
-                    print("expected a signed packet")
                     self.shutdown()
                     return None
                 else:
@@ -230,7 +265,6 @@ class SecureSock:
             else:
                 err_info = self.process_frame(frame_type, packet_body, length)
                 if err_info is not None:
-                    print(err_info)
                     if not self.closed:
                         self.send_error_frame(err_info[0], err_info[1])
     def process_frame(self, frame_type, frame_bytes, real_length):
