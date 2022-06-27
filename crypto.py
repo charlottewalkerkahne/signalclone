@@ -437,7 +437,6 @@ class MemoryKeyStore:
         #set the incomplete_session_key to None so we know that it is complete
         self.incomplete_session_keys[peer_id] = None
         self.active_sessions[peer_id] = (encryptor_id, decryptor_id)
-        print(self.active_sessions)
 
 
     #this creates an asynchronous session using x3dh

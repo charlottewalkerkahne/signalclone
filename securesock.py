@@ -57,7 +57,6 @@ class SecureSock:
         return peer_id in self.keyring.active_sessions
     def shutdown(self):
         if not self.closed:
-            print("SHUTTING DOWN")
             self.sock.close()
             self.keyring.keystorage.sync()
             self.keyring.remove_synchronous_session(self.connection_id)
@@ -65,6 +64,7 @@ class SecureSock:
             del self.unacked_frames
             del self.pending_group_messages
             del self.pending_encryption
+            del self.sock_poll
             self.closed = True
     def update(self):
         if self.closed:
@@ -136,7 +136,6 @@ class SecureSock:
         length = None
         if self.secured:
             session_id = self.keyring.active_sessions[self.connection_id][0]
-            print(session_id)
             assert(session_id is not None)
             encrypted_body = self.keyring.session_encrypt(session_id, frame_bytes)
             crypto_struct = self.buffer_packs[messages.TYPE_CRYPTO]

@@ -19,7 +19,6 @@ class Server:
         self.clients = {} #peer_id : SecureSock obj
         self.pending_sockets = {}
         self.closed_sockets = []
-        self.active_ids = []
         self.accept_thread = None
         self.accepting = True
         self.addressbook = addressbook
@@ -56,7 +55,7 @@ class Server:
             if self.should_accept():
                 new_connection, addr = self.sock.accept()
                 new_client = SecureSock(new_connection, self.keyring)
-                self.pending_sockets[addr] = new_client #race condition
+                self.pending_sockets[addr] = new_client
     def stop(self):
         self.accepting = False
     def route_message(self, frame, source_id, dest_id):
@@ -69,10 +68,6 @@ class Server:
             else:
                 if source_id in self.clients:
                     self.message_store.add_message(dest_id, frame)
-    def get_active_users(self):
-        return self.active_ids
-    def set_id_innactive(self, id):
-        self.active_ids.remove(id)
     def handle_server_data(self, data, source_id):
         decoded_data = application_data.decode_data(data)
         if decoded_data is not None:
@@ -123,11 +118,8 @@ class Server:
             for id in self.closed_sockets:
                 if id in self.clients:
                     del self.clients[id]
-            del processed_sockets
-            del self.closed_sockets
             self.closed_sockets = []
             self.tock()
-            print(self.active_ids)
     def tock(self):
         clients_iterable = self.clients.items()
         for peer_id, client in clients_iterable:
