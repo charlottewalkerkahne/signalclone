@@ -84,5 +84,5 @@ def fuzz_authenticated():
 
 
 if __name__=="__main__":
-    #fuzz_unauthenticated()
-    fuzz_authenticated()
+    fuzz_unauthenticated()
+    #fuzz_authenticated()

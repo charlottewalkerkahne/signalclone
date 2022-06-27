@@ -54,6 +54,7 @@ class Server:
         while self.running:
             if self.should_accept():
                 new_connection, addr = self.sock.accept()
+                print("new connection")
                 new_client = SecureSock(new_connection, self.keyring)
                 self.pending_sockets[addr] = new_client
     def stop(self):
@@ -100,6 +101,7 @@ class Server:
             self.closed_sockets.append(sock.connection_id)
     def tick(self):
         while self.running:
+            print("running")
             clients_iterable = self.clients.items()
             for peer_id,sock_obj in clients_iterable:
                 self.update_sock(sock_obj)
@@ -112,12 +114,18 @@ class Server:
                         self.clients[sock_obj.connection_id] = sock_obj
                     else:
                         sock_obj.shutdown()
+                        del sock_obj
+                else:
+                    processed_sockets.append(addr)
                 self.update_sock(sock_obj)
+            print("length of processed sockets: {}".format(len(processed_sockets)))
             for addr in processed_sockets:
                 del self.pending_sockets[addr]
             for id in self.closed_sockets:
                 if id in self.clients:
                     del self.clients[id]
+            del processed_sockets
+            del pending_sock_items
             self.closed_sockets = []
             self.tock()
     def tock(self):
@@ -139,10 +147,12 @@ def start_server(address, addressbook, keyring, ms):
     server.start_accepting()
     while server.running:
         print("Memory in use: {}".format(tracemalloc.get_traced_memory()))
+        print(len(server.pending_sockets))
         #gc.collect()
         sleep(5)
     server.accepting_thread.join()
     server.ticktock_thread.join()
+    print("SERVER STOPPED")
 
 def setup_server():
     server_addr = ('127.0.0.1', 9080) #default

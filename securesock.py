@@ -67,6 +67,7 @@ class SecureSock:
             del self.sock_poll
             self.closed = True
     def update(self):
+        assert(len(self.unacked_frames) == 0)
         if self.closed:
             pass
         elif self.shutting_down:
@@ -190,7 +191,6 @@ class SecureSock:
         packet_body = raw_packet[buf_pack.size:]
         if packet_type == messages.TYPE_CRYPTO:
             session_id = packet_header[2]
-            print(self.keyring.session_decryption_keys)
             if session_id not in self.keyring.session_decryption_keys:
                 print("Bad sessiongkjhgk")
                 self.shutdown()
@@ -229,7 +229,6 @@ class SecureSock:
                 return None
             else:
                 err_info = self.process_frame(frame_type, packet_body, length)
-                print(err_info)
                 if err_info is not None:
                     print(err_info)
                     if not self.closed:
@@ -353,7 +352,6 @@ class SecureSock:
         else:
             return messages.UNAUTHORIZED_PEER
     def process_handshake_request(self, frame_header):
-        print("Processing handshake request")
         frame_type, length, source, dest, frame_id, dh_info = frame_header
         peer_salt, peer_dh_s, peer_dh_r = crypto.get_unpacked_dh_public_key(dh_info)
         peer_id = self.keyring.update_synchronous_session(source, peer_salt, peer_dh_r, peer_dh_s)
@@ -363,6 +361,7 @@ class SecureSock:
             self.secured = True
             self.connection_id = source
         else:
+            self.connection_id = None
             print("Handshake error")
             return messages.HANDSHAKE_ERROR
     def process_handshake_response(self, frame_header):
