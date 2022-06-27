@@ -10,6 +10,7 @@ SERVER_ID = b'\xc5\xeb\x85\x0b\x88\xd2\xae6\x84V\xea-Z\xd8\xed\x10O\x9f\xee\r\xc
 CLIENT_HANDLE_0 = "client_0"
 
 
+
 def send_data(data):
     sock = utils.init_socket()
     sock.connect(SERVER_ADDRESS)

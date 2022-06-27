@@ -2,7 +2,7 @@ import configparser
 from os import getenv
 from os.path import join
 
-DEFAULT_APP_LOCATION = join(getenv("HOME"), ".gestureapp")
+DEFAULT_APP_LOCATION = join("/tmp/TESTS/", ".gestureapp")
 DEFAULT_STORAGE_NAME = "gestureappdb.sqlite"
 DEFAULT_CONFIG_NAME = "gestureconfig"
 DEFAULT_ATTACHMENT_DIR = join(DEFAULT_APP_LOCATION, "SAVED-ATTACHMENTS")
@@ -18,6 +18,7 @@ def setup_config_file(config_path, username):
                          'Login-Name': username}
     config['DEFAULTSECTION'] = {'section-name': 'TESTING'}
     flush_config(config_path, config)
+    return config
 
 def load_config(config_path):
     config = configparser.ConfigParser()
@@ -49,6 +50,8 @@ def add_server(config_path, servername, address, port):
 
 
 def load_default_config():
+    return setup_config_file(DEFAULT_APP_LOCATION, "")
+    """
     config = configparser.ConfigParser()
     config_path = join(
         DEFAULT_APP_LOCATION,
@@ -56,3 +59,4 @@ def load_default_config():
     )
     config.read(config_path)
     return config
+    """
