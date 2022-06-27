@@ -395,6 +395,7 @@ class MemoryKeyStore:
 
     def update_synchronous_session(self, peer_id, peer_salt, peer_dh_r, peer_dh_s):
         if peer_id in self.active_sessions:
+            print("peer already connected")
             return None
         if peer_id not in self.incomplete_session_keys:
             self.create_new_synchronous_session(peer_id)
@@ -405,6 +406,10 @@ class MemoryKeyStore:
 
     def remove_synchronous_session(self, peer_id):
         if peer_id in self.active_sessions:
+            encryptor_session_id = self.active_sessions[peer_id][0]
+            decryptor_session_id = self.active_sessions[peer_id][1]
+            del self.session_decryption_keys[decryptor_session_id]
+            del self.session_encryption_keys[encryptor_session_id]
             del self.active_sessions[peer_id]
         if peer_id in self.incomplete_session_keys:
             del self.incomplete_session_keys[peer_id]
@@ -432,6 +437,7 @@ class MemoryKeyStore:
         #set the incomplete_session_key to None so we know that it is complete
         self.incomplete_session_keys[peer_id] = None
         self.active_sessions[peer_id] = (encryptor_id, decryptor_id)
+        print(self.active_sessions)
 
 
     #this creates an asynchronous session using x3dh

@@ -20,7 +20,6 @@ class SecureSock:
         self.secured = False
         self.shutting_down = False
         self.closed = False
-        self.log_queue = Queue()
         self.sock_poll = selectors.select.poll()
         self.sock_poll.register(self.sock)
         self.pending_encryption = {} #peer_id: frame_list
@@ -57,12 +56,20 @@ class SecureSock:
     def channel_secured(self, peer_id):
         return peer_id in self.keyring.active_sessions
     def shutdown(self):
-        self.sock.close()
-        self.keyring.remove_synchronous_session(self.connection_id)
-        self.keyring.keystorage.sync()
-        del self.keyring
+        if not self.closed:
+            print("SHUTTING DOWN")
+            self.sock.close()
+            self.keyring.keystorage.sync()
+            self.keyring.remove_synchronous_session(self.connection_id)
+            del self.sock
+            del self.unacked_frames
+            del self.pending_group_messages
+            del self.pending_encryption
+            self.closed = True
     def update(self):
         if self.closed:
+            pass
+        elif self.shutting_down:
             self.shutdown()
         else:
             self.raw_recv()
@@ -83,16 +90,30 @@ class SecureSock:
         packet_received = False
         try:
             raw_header = self.sock.recv(3)
-            packet_type, length = unpack("!BH", raw_header)
-            if packet_type == messages.TYPE_CRYPTO:
-                length += 32
-            packet = self.sock.recv(length)
-            packet_received = True
+            try:
+                packet_type, length = unpack("!BH", raw_header)
+            except error:
+                self.shutdown()
+                packet_received = False
+            if not self.closed:
+                if packet_type == messages.TYPE_CRYPTO:
+                    length += 32
+                    packet = self.sock.recv(length)
+                    packet_received = True
+                elif packet_type == messages.TYPE_CLEAR:
+                    packet = self.sock.recv(length)
+                    packet_received = True
+                else:
+                    # the data will remain in the socket but now
+                    # we won't waste as much time deserializing bad data
+                    self.shutdown()
+                    packet_received = False
+
         except ConnectionResetError:
-            self.closed = True
+            self.shutting_down = True
             self.shutdown()
         except error:
-            self.closed = True
+            self.shutting_down = True
             self.shutdown()
         except BlockingIOError:
             assert(raw_header == None)
@@ -102,8 +123,11 @@ class SecureSock:
             real_length = len(packet)
             assert(real_length <= length and "Got bad packet length")
             while real_length < length: #TODO MAKE SURE THIS DOESNT HANG
-                packet += self.sock.recv(length-real_length)
-                real_length += len(packet)
+                try:
+                    packet += self.sock.recv(length-real_length)
+                    real_length += len(packet)
+                except(BlockingIOError):
+                    pass
             raw_packet = raw_header + packet
             self.process_packet(packet_type, raw_packet, real_length)
     def raw_send(self, frame_bytes):
@@ -112,6 +136,7 @@ class SecureSock:
         length = None
         if self.secured:
             session_id = self.keyring.active_sessions[self.connection_id][0]
+            print(session_id)
             assert(session_id is not None)
             encrypted_body = self.keyring.session_encrypt(session_id, frame_bytes)
             crypto_struct = self.buffer_packs[messages.TYPE_CRYPTO]
@@ -138,7 +163,14 @@ class SecureSock:
                 sock_status = self.sock_is_ready()
                 if len(sock_status) == 1: #otherwise busy
                     while bytes_sent < length:
-                        bytes_sent += self.sock.send(packet_bytes[offset:])
+                        try:
+                            bytes_sent += self.sock.send(packet_bytes[offset:])
+                        except ConnectionResetError:
+                            self.shutdown()
+                            break
+                        except BrokenPipeError:
+                            self.shutdown()
+                            break
                         offset += bytes_sent
                     sent = True
                 else:
@@ -147,49 +179,72 @@ class SecureSock:
             return None
     def process_packet(self, packet_type, raw_packet, packet_length):
         if packet_type not in self.buffer_packs:
+            print("Bad packet type")
+            self.shutdown()
             return None
         buf_pack = self.buffer_packs[packet_type]
         if packet_length < buf_pack.size:
+            print("Bad length")
+            self.shutdown()
             return None
         packet_header = buf_pack.unpack(raw_packet[:buf_pack.size])
         packet_body = raw_packet[buf_pack.size:]
         if packet_type == messages.TYPE_CRYPTO:
             session_id = packet_header[2]
+            print(self.keyring.session_decryption_keys)
+            if session_id not in self.keyring.session_decryption_keys:
+                print("Bad sessiongkjhgk")
+                self.shutdown()
+                return None
             packet_body = self.keyring.session_decrypt(session_id, packet_body)
             if packet_body is None:
-                #TODO send decryption error
-                pass
+                print("Bad decryption")
+                self.shutdown()
+                return None
             else:
                 self.process_crypto_packet(packet_body, len(packet_body))
         elif packet_type == messages.TYPE_CLEAR:
              self.process_clear_packet(packet_body, len(packet_body))
     def process_clear_packet(self, packet_body, length):
-        frame_type = struct.unpack("!B", packet_body[:1])[0]
-        if frame_type not in self.buffer_packs:
-            #TODO send unrecognized frame error
-            pass
-        else:
-            if frame_type != messages.TYPE_SIGNED:
-                #TODO send unexpected frame error
-                pass
+        if length > 0:
+            frame_type = struct.unpack("!B", packet_body[:1])[0]
+            if frame_type not in self.buffer_packs:
+                print("bad type in clear packet")
+                self.shutdown()
+                return None
+            else:
+                if frame_type != messages.TYPE_SIGNED:
+                    print("expected a signed packet")
+                    self.shutdown()
+                    return None
+                else:
+                    err_info = self.process_frame(frame_type, packet_body, length)
+                    if err_info is not None:
+                        if not self.closed:
+                            self.send_error_frame(err_info[0], err_info[1])
+    def process_crypto_packet(self, packet_body, length):
+        if length > 0:
+            frame_type = struct.unpack("!B", packet_body[:1])[0]
+            if frame_type not in self.buffer_packs:
+                self.shutdown()
+                return None
             else:
                 err_info = self.process_frame(frame_type, packet_body, length)
+                print(err_info)
                 if err_info is not None:
-                    self.send_error_frame(err_info[0], err_info[1])
-    def process_crypto_packet(self, packet_body, length):
-        frame_type = struct.unpack("!B", packet_body[:1])[0]
-        if frame_type not in self.buffer_packs:
-            #TODO send unrecognized error frame
-            pass
-        else:
-            err_info = self.process_frame(frame_type, packet_body, length)
-            if err_info is not None:
-                self.send_error_frame(err_info[0], err_info[1])
+                    print(err_info)
+                    if not self.closed:
+                        self.send_error_frame(err_info[0], err_info[1])
     def process_frame(self, frame_type, frame_bytes, real_length):
         if frame_type not in self.buffer_packs:
+            self.shutdown()
             return messages.UNKNOWN_FRAMETYPE
+        elif frame_type == messages.TYPE_CLEAR or frame_type == messages.TYPE_CRYPTO:
+            self.shutdown()
+            return messages.UNEXPECTED_FRAME
         frame_struct = self.buffer_packs[frame_type]
         if real_length < frame_struct.size:
+            self.shutdown()
             return messages.LENGTH_ERROR
         frame_header = frame_struct.unpack(frame_bytes[:frame_struct.size])
         if frame_header[3] != self.keyring.identity_id:
@@ -197,7 +252,7 @@ class SecureSock:
             return None
         expected_length = frame_header[1]
         if real_length - frame_struct.size != expected_length:
-            return messages.LENGTH_ERROR
+            return messages.LENGTH_ERROR, frame_header
         frame_body = frame_bytes[frame_struct.size:]
         if frame_type == messages.TYPE_HELO:
             err = self.process_handshake_request(frame_header)
@@ -284,7 +339,7 @@ class SecureSock:
         elif error_code == messages.PREKEY_ERROR_NO_KEYS_FOUND:
             pass
     def process_shutdown(self, frame_header, frame_body):
-        self.shutdown_sock()
+        self.shutdown()
     def process_okay(self, source_id, dest_id, length, frame_header):
         pass
     def process_signed_frame(self, frame_header, frame_body):
@@ -299,6 +354,7 @@ class SecureSock:
         else:
             return messages.UNAUTHORIZED_PEER
     def process_handshake_request(self, frame_header):
+        print("Processing handshake request")
         frame_type, length, source, dest, frame_id, dh_info = frame_header
         peer_salt, peer_dh_s, peer_dh_r = crypto.get_unpacked_dh_public_key(dh_info)
         peer_id = self.keyring.update_synchronous_session(source, peer_salt, peer_dh_r, peer_dh_s)
@@ -308,6 +364,7 @@ class SecureSock:
             self.secured = True
             self.connection_id = source
         else:
+            print("Handshake error")
             return messages.HANDSHAKE_ERROR
     def process_handshake_response(self, frame_header):
         frame_type, length, source, dest, frame_id, dh_info = frame_header
@@ -318,6 +375,7 @@ class SecureSock:
             self.secured = True
             self.connection_id = peer_id
         else:
+            print("HANDSHAKE ERROR")
             return messages.HANDSHAKE_ERROR
     def process_prekey_bundle_response(self, frame_header, frame_body):
         frame_type, length, source, dest, frame_id, signing_client_id, spk, sig = frame_header
@@ -463,25 +521,26 @@ class SecureSock:
         )
         return self.send_signed_frame(frame, dest)
     def send_error_frame(self, err_code, frame_header):
-        frame = self.buffer_packs[messages.TYPE_ERROR].pack(
-            messages.TYPE_ERROR,
-            0,
-            self.keyring.identity_id,
-            frame_header[3],
-            self.current_frame_id,
-            err_code,
-            frame_header[4]
-        )
+        try:
+            frame = self.buffer_packs[messages.TYPE_ERROR].pack(
+                messages.TYPE_ERROR,
+                0,
+                self.keyring.identity_id,
+                frame_header[3],
+                self.current_frame_id,
+                err_code,
+                frame_header[4]
+            )
+        except error:
+            print(error)
+            return None
         self.raw_send(frame)
     def send_unreachable_frame(self, dest_id):
         pass
     def process_shutdown_frame(self, frame_header, frame_body):
-        self.shutdown_sock()
+        self.shutdown()
     def send_shutdown_frame(self, shouldwait=True):
         pass
-    def shutdown_sock(self):
-        self.sock.close()
-        self.closed = True
     def send_stream(self, frame_bytes, dest):
         content_length = len(frame_bytes)
         num_frames = (content_length // messages.MAX_APPLICATION_LENGTH) + 1

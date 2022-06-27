@@ -279,7 +279,6 @@ class Client:
 
     def load_attachment(self, path):
         if exists(path):
-            file_bytes = b""
             with open(path, "rb") as filereader:
                 file_bytes = filereader.read()
             compressed_bytes = utils.compress(file_bytes)

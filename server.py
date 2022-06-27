@@ -109,13 +109,14 @@ class Server:
             for peer_id,sock_obj in clients_iterable:
                 self.update_sock(sock_obj)
             processed_sockets = []
-            for addr,sock_obj in self.pending_sockets.items(): #race condition TODO fix this !!!
+            pending_sock_items = list(self.pending_sockets.items()) #create list to avoid race condition
+            for addr,sock_obj in pending_sock_items:
                 if sock_obj.connection_id != None:
                     if self.is_valid_id(sock_obj.connection_id):
                         processed_sockets.append(addr)
                         self.clients[sock_obj.connection_id] = sock_obj
                     else:
-                        sock_obj.shutdown_sock()
+                        sock_obj.shutdown()
                 self.update_sock(sock_obj)
             for addr in processed_sockets:
                 del self.pending_sockets[addr]
@@ -126,6 +127,7 @@ class Server:
             del self.closed_sockets
             self.closed_sockets = []
             self.tock()
+            print(self.active_ids)
     def tock(self):
         clients_iterable = self.clients.items()
         for peer_id, client in clients_iterable:

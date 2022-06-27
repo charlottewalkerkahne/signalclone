@@ -15,7 +15,7 @@ MIMETYPES_TO_ICONS = {
 }
 
 
-
+CONNECT_TIMEOUT = 2
 
 class ConvoListItem(QtWidgets.QListWidgetItem):
     def __init__(self):
@@ -77,6 +77,9 @@ class MessageListItem(QtWidgets.QListWidgetItem):
         self.setText(handle + ':\n' + self.content + '\n')
     def updateSent(self):
         pass
+
+
+
 
 
 def get_icon_from_mimetype(fname):
@@ -152,7 +155,6 @@ class GestureUi(QtWidgets.QMainWindow):
 
     def resize_input_field(self):
         doc_size = self.chatInput.document().size().toSize()
-        input_size = self.chatInput.size()
         if doc_size.height() > 40:
             if doc_size.height() < 150:
                 self.chatInput.setFixedHeight(doc_size.height())
@@ -384,6 +386,14 @@ class GestureUi(QtWidgets.QMainWindow):
         convo_item.set_read()
         id = convo_item.convo_id
         self.chatInput.setEnabled(True)
+        if self.current_convo_id is not None:
+            #save any text in the input box before switching conversations
+            self.input_text[self.current_convo_id] = self.chatInput.toPlainText()
+            self.chatInput.clear()
+        if id in self.input_text:
+            #restore any saved text to the input box
+            self.chatInput.setText(self.input_text[id])
+            del self.input_text[id]
         self.current_convo_id = id
         current_widget = self.chatHistoryStack.widget(self.displays[self.current_convo_id])
         if id in self.attachments:
@@ -462,7 +472,9 @@ class GestureUi(QtWidgets.QMainWindow):
                     self.connectionLabel.setStyleSheet("color: yellow")
                     label = "Connecting"
                     count = 0
+                    starttime = time.time()
                     while not new_client.handshake_complete():
+                        current_time = time.time()
                         time.sleep(.1)
                         label += "."
                         self.connectionLabel.setText(label)
@@ -472,20 +484,33 @@ class GestureUi(QtWidgets.QMainWindow):
                         if count >= 3:
                             count = 0
                             label = "Connecting"
-                    self.connectionLabel.setStyleSheet("color: green")
+                        if current_time - starttime >= CONNECT_TIMEOUT:
+                            break
+                    if new_client.handshake_complete():
+                        self.connectionLabel.setStyleSheet("color: green")
 
-                    self.client = new_client
-                    self.connectionLabel.setText("Connected")
-                    self.client.post_prekey_bundle()
-                    self.newConvoButton.setEnabled(True)
-                    self.usernameInput.setEnabled(False)
-                    self.servernameInput.setEnabled(False)
-                    self.newConvoButton.show()
-                    self.updateTimer.start()
-                    self.load_conversations()
-                    self.client.fetch_messages_from_server()
-                    self.connectButton.setCheckable(True)
-                    self.connectButton.setChecked(True)
+                        self.client = new_client
+                        self.connectionLabel.setText("Connected")
+                        self.client.post_prekey_bundle()
+                        self.newConvoButton.setEnabled(True)
+                        self.usernameInput.setEnabled(False)
+                        self.servernameInput.setEnabled(False)
+                        self.newConvoButton.show()
+                        self.updateTimer.start()
+                        self.load_conversations()
+                        self.client.fetch_messages_from_server()
+                        self.connectButton.setCheckable(True)
+                        self.connectButton.setChecked(True)
+                    else:
+                        self.errorPopup.showMessage(
+                            "Remote server seems up but is not letting you login." \
+                            "This may be because:\n" \
+                            "1) The server thinks you are already connected,\n" \
+                            "2) The server does not have your public login key, or\n" \
+                            "3) The idiot who coded this messed up.\n\n"\
+                        )
+                        self.connectionLabel.setText("Disconnected")
+                        self.connectionLabel.setStyleSheet("color: red")
                 else:
                     print(err)
         else:

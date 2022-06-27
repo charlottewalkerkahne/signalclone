@@ -47,6 +47,7 @@ def add_server(config_path, servername, address, port):
         }
     flush_config(config_path, config)
 
+
 def load_default_config():
     config = configparser.ConfigParser()
     config_path = join(
