@@ -150,8 +150,17 @@ class GestureUi(QtWidgets.QMainWindow):
 
         self.chatInput.setFixedHeight(40)
 
-        self.uninitialized_convos = {} #convo_id: convo_item
+        self.initialized_convos = {} #convo_id: convo_item
         self.newConvoButton.hide()
+        self.actionChange_Font.triggered.connect(self.change_font_type)
+        self.menubar.setNativeMenuBar(False)
+
+
+    def change_font_type(self):
+        (font, ok) = QtWidgets.QFontDialog.getFont(QtGui.QFont("Helvetica [Cronyx]", 10), self)
+        if ok:
+            for k,v in self.convo_items.items():
+                self.activeConversationList.item(v).setFont(font)
 
     def resize_input_field(self):
         doc_size = self.chatInput.document().size().toSize()
@@ -230,7 +239,8 @@ class GestureUi(QtWidgets.QMainWindow):
                 new_convo_item.add_recipients(participant_dict)
                 new_convo_item.convo_id = new_conversation_id
                 self.convo_items[new_conversation_id] = self.activeConversationList.count()
-                self.activeConversationList.addItem(new_convo_item)
+                #self.activeConversationList.addItem(new_convo_item)
+                self.initialized_convos[new_conversation_id] = new_convo_item
                 self.createChatDisplayWidget(new_conversation_id)
                 self.client.save_conversation(new_conversation_id, peers)
             #this should not cause a race condition because the underlying client class
@@ -250,6 +260,9 @@ class GestureUi(QtWidgets.QMainWindow):
                         new_message.setAttachment(handle, dm["ATTACHMENT"])
                     else:
                         new_message.setNiceText(self.client.get_username_from_id(source))
+                    if convo_id in self.initialized_convos:
+                        self.activeConversationList.addItem(self.initialized_convos[convo_id])
+                        del self.initialized_convos[convo_id]
                     index = self.displays[convo_id]
                     self.chatHistoryStack.widget(index).addItem(new_message)
                     self.chatHistoryStack.widget(index).scrollToBottom()
@@ -434,6 +447,7 @@ class GestureUi(QtWidgets.QMainWindow):
             self.client.save_conversation(new_id, recipients.values())
             new_item.convo_id = new_id
             self.createChatDisplayWidget(new_id)
+            self.activeConversationList.setCurrentItem(new_item)
 
     def get_convo_participants(self):
         self.convoAddDialog.setTextValue("")
@@ -541,5 +555,6 @@ def load_client_information(username):
 
 if __name__=="__main__":
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyle(QtWidgets.QStyleFactory.create("fusion"))
     window = GestureUi()
     app.exec_()

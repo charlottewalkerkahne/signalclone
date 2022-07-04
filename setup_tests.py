@@ -10,7 +10,7 @@ import storage
 DEFAULT_PATH="/tmp/TESTS"
 
 
-TESTED_PLATFORMS = ['linux']
+TESTED_PLATFORMS = ['linux', 'darwin']
 
 def check_platform():
     return platform in TESTED_PLATFORMS

@@ -1,8 +1,18 @@
+import sys
 import configparser
 from os import getenv
 from os.path import join
 
-DEFAULT_APP_LOCATION = join("/tmp/TESTS/", ".gestureapp")
+if sys.platform == "linux":
+    DEFAULT_APP_LOCATION = join(getenv("HOME"), ".gestureapp")
+elif sys.platform == "darwin":
+    DEFAULT_APP_LOCATION = join(getenv("HOME"), ".gestureapp")
+elif sys.platform == "win32":
+    DEFAULT_APP_LOCATION = join(getenv("HOMEPATH"), ".gestureapp")
+else:
+    pass
+
+DEFAULT_PORT=9080
 DEFAULT_STORAGE_NAME = "gestureappdb.sqlite"
 DEFAULT_CONFIG_NAME = "gestureconfig"
 DEFAULT_ATTACHMENT_DIR = join(DEFAULT_APP_LOCATION, "SAVED-ATTACHMENTS")
@@ -49,9 +59,22 @@ def add_server(config_path, servername, address, port):
     flush_config(config_path, config)
 
 
+#generates a config file with identity keys that a user can use
+#to create a new contact. If address is not None, then the config is meant to be for a server
+def generate_contact_config(ed_key_bytes, dh_key_bytes, address=None):
+    config = configparser.ConfigParser()
+    config["identity_ed"] = ed_key_bytes
+    config["identity_dh"] = dh_key_bytes
+    if address is not None:
+        config["address"] = address
+    return config
+
+def load_contact_config(config_file):
+    pass
+
+
+
 def load_default_config():
-    return setup_config_file(DEFAULT_APP_LOCATION, "")
-    """
     config = configparser.ConfigParser()
     config_path = join(
         DEFAULT_APP_LOCATION,
@@ -59,4 +82,3 @@ def load_default_config():
     )
     config.read(config_path)
     return config
-    """

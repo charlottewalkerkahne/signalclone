@@ -12,12 +12,15 @@ DEFAULT_TIMEOUT = .1
 #setdefaulttimeout(DEFAULT_TIMEOUT)
 
 class SecureSock:
-    def __init__(self, sock, keyring):
+    def __init__(self, sock, keyring, application_q=None):
         self.sock = sock
         self.sock.setblocking(False)
         self.keyring = keyring
         self.connection_id = None
-        self.application_frames = Queue()
+        if application_q is None:
+            self.application_frames = Queue()
+        else:
+            self.application_frames = application_q
         self.incomplete_frames = {} #peer_id: {stream_id: [frames]}
         self.secured = False
         self.shutting_down = False
@@ -48,19 +51,6 @@ class SecureSock:
         self.buffer_packs[messages.TYPE_BROADCAST_REQUEST] = struct.Struct(messages.BROADCAST_REQUEST)
         self.buffer_packs[messages.TYPE_GROUP_KEY] = struct.Struct(messages.GROUP_KEY_FRAME)
         self.buffer_packs[messages.TYPE_ERROR] = struct.Struct(messages.ERROR_FRAME_FORMAT)
-    def __del__(self):
-        if not self.closed:
-            self.sock.close()
-            self.keyring.keystorage.sync()
-            self.keyring.remove_synchronous_session(self.connection_id)
-            del self.sock
-            del self.unacked_frames
-            del self.pending_group_messages
-            del self.pending_encryption
-            del self.sock_poll
-            del self.incomplete_frames
-            del self.saved_incomplete_packet
-            self.closed = True
     def connect(self, peer_addr, peer_id):
         self.sock.setblocking(True)
         self.sock.connect(peer_addr)

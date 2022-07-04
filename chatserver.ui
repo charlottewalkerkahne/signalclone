@@ -116,6 +116,7 @@
   <property name="font">
    <font>
     <family>Fira Sans</family>
+    <pointsize>12</pointsize>
    </font>
   </property>
   <property name="windowTitle">
@@ -1323,7 +1324,7 @@ QTextEdit:focus {
      <x>0</x>
      <y>0</y>
      <width>904</width>
-     <height>22</height>
+     <height>25</height>
     </rect>
    </property>
    <property name="palette">

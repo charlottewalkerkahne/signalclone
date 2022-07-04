@@ -1,3 +1,4 @@
+import os
 import time
 import utils
 import crypto
@@ -7,6 +8,7 @@ from time import sleep
 import application_data
 from threading import Thread
 from securesock import SecureSock
+from multiprocessing import Queue
 
 
 
@@ -25,7 +27,7 @@ class Server:
         self.addressbook = addressbook
         self.keyring = keyring
         self.message_store = message_store
-
+        self.application_q = Queue()
         self.running = False
         self.ticktock_thread = None
     def listen_on(self, address):
@@ -36,7 +38,6 @@ class Server:
                 break
             except OSError:
                 sleep(BINDWAIT)
-        print("SERVER UP")
         self.sock.listen()
     def start_accepting(self):
         self.accept_thread = Thread(target=self.accept)
@@ -52,13 +53,22 @@ class Server:
             return False
         return True
     def accept(self):
+        self.sock.settimeout(1)
         while self.running:
             if self.should_accept():
-                new_connection, addr = self.sock.accept()
-                new_client = SecureSock(new_connection, self.keyring)
-                self.pending_sockets[addr] = (new_client, time.time())
+                new_connection, addr = None, None
+                try:
+                    new_connection, addr = self.sock.accept()
+                except(TimeoutError):
+                    pass
+                except(OSError):
+                    break
+                if new_connection is not None:
+                    new_client = SecureSock(new_connection, self.keyring, self.application_q)
+                    self.pending_sockets[addr] = (new_client, time.time())
     def stop(self):
         self.accepting = False
+        self.running = False
     def route_message(self, frame, source_id, dest_id):
         if dest_id == self.keyring.identity_id:
             self.handle_server_data(frame, source_id)
@@ -141,17 +151,31 @@ class Server:
 
 
 
+
+def handle_server_commands(server):
+    prompt = "> "
+    while server.running:
+        command_success = False
+        while not command_success:
+            command = input(prompt)
+            command = command.lower().split(' ')
+            if len(command) == 1:
+                command = command[0]
+                if command == "stop":
+                    server.stop()
+                    command_success = True
+                else:
+                    print("\'{}\' is not a recognized command".format(command))
+
+
 def start_server(address, addressbook, keyring, ms):
     sock = utils.init_socket()
     server = Server(keyring, sock, addressbook, ms)
     server.listen_on(address)
     server.start_accepting()
-    while server.running:
-        print("Memory in use: {}".format(tracemalloc.get_traced_memory()))
-        sleep(5)
-    server.accepting_thread.join()
+    handle_server_commands(server)
+    server.accept_thread.join()
     server.ticktock_thread.join()
-    print("SERVER STOPPED")
 
 def setup_server():
     server_addr = ('127.0.0.1', 9080) #default
