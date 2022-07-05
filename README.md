@@ -47,3 +47,6 @@ python3 clientui.py
 ```
 
 To connect to the server, enter one of client_0, client_1, or client_2 in the login name field.
+
+```
+# DISCLAIMER: I AM NOT A PROFESSIONAL! I made this project for fun, not because I think it should ever be used in any situation that requires real security.
