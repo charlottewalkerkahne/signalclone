@@ -1,3 +1,4 @@
+import os
 import sys
 import configparser
 from os import getenv
@@ -75,10 +76,15 @@ def load_contact_config(config_file):
 
 
 def load_default_config():
+    if not os.path.exists(DEFAULT_APP_LOCATION):
+        os.mkdir(DEFAULT_APP_LOCATION)
     config = configparser.ConfigParser()
     config_path = join(
         DEFAULT_APP_LOCATION,
         DEFAULT_CONFIG_NAME
     )
-    config.read(config_path)
-    return config
+    if not os.path.exists(config_path):
+        return setup_config_file(config_path, "")
+    else:
+        config.read(config_path)
+        return config
