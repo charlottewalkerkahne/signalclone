@@ -27,18 +27,29 @@ def gen_aesgcm_nonce():
 def gen_ephemeral_priv_key():
     return X25519PrivateKey.generate()
 
-def get_public_dh_key_from_bytes(public_bytes):
-    return X25519PublicKey.from_public_bytes(public_bytes)
+def get_public_dh_key_from_bytes(public_bytes, is_pem=False):
+    if not is_pem:
+        return X25519PublicKey.from_public_bytes(public_bytes)
+    else:
+        return serialization.load_pem_public_key(public_bytes)
 
-def get_private_dh_key_from_bytes(private_bytes):
-    return X25519PrivateKey.from_private_bytes(private_bytes)
+def get_private_dh_key_from_bytes(private_bytes, is_pem=False):
+    if not is_pem:
+        return X25519PrivateKey.from_private_bytes(private_bytes)
+    else:
+        return serialization.load_pem_private_key(private_bytes)
 
-def get_public_ed_key_from_bytes(public_bytes):
-    return Ed25519PublicKey.from_public_bytes(public_bytes)
+def get_public_ed_key_from_bytes(public_bytes, is_pem=False):
+    if not is_pem:
+        return Ed25519PublicKey.from_public_bytes(public_bytes)
+    else:
+        return serialization.load_pem_public_key(public_bytes)
 
-def get_private_ed_key_from_bytes(private_bytes):
-    return Ed25519PrivateKey.from_private_bytes(private_bytes)
-
+def get_private_ed_key_from_bytes(private_bytes, is_pem=False):
+    if not is_pem:
+        return Ed25519PrivateKey.from_private_bytes(private_bytes)
+    else:
+        return serialization.load_pem_private_key(private_bytes)
 
 def sha256sum(data):
     if type(data) != type(b""):
@@ -56,6 +67,12 @@ def generate_dh_identity_key():
 def generate_ed_identity_key():
     private_key = Ed25519PrivateKey.generate()
     return private_key
+
+def get_public_PEM_format(public_key):
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
 
 #returns the serialized version of an X25519 Public key
 def get_dh_public_bytes(dh_key):
@@ -191,8 +208,6 @@ def decrypt(key, ciphertext, associated_data):
     decryptor = AESGCM(key)
     nonce,ct = get_unpacked_ciphertext(ciphertext)
     plaintext = decryptor.decrypt(nonce, ct, associated_data)
-    if plaintext is None:
-        pass
     return plaintext
 
 def sign(signing_private_key, data):

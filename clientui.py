@@ -2,11 +2,13 @@ import sys
 import time
 import utils
 import client
+import crypto
 import storage
 import os.path
 import mimetypes
 import appconfig
 from PyQt5 import QtWidgets, uic, QtCore, QtGui
+
 
 MIMETYPES_TO_ICONS = {
     'text/plain': 'text-x-generic',
@@ -106,6 +108,7 @@ class GestureUi(QtWidgets.QMainWindow):
 
         self.config = None
         self.load_default_values()
+        self.view_chat()
 
         self.servernameInput.returnPressed.connect(self.verify_servername)
         self.servernameInput.editingFinished.connect(self.verify_servername)
@@ -155,6 +158,39 @@ class GestureUi(QtWidgets.QMainWindow):
         self.actionChange_Font.triggered.connect(self.change_font_type)
         self.menubar.setNativeMenuBar(False)
 
+        self.actionView_Contacts.triggered.connect(self.view_contacts)
+        self.actionView_Servers.triggered.connect(self.view_servers)
+
+        self.backFromServersButton.clicked.connect(self.view_chat)
+        self.backFromClientsButton.clicked.connect(self.view_chat)
+
+        #self.contactList.currentRowChanged.connect(self.view_contact_info)
+        self.contactList.itemSelectionChanged.connect(self.view_contact_info)
+
+        self.addContactButton.clicked.connect(self.add_new_contact)
+        self.deleteContactButton.clicked.connect(self.delete_or_cancel_contact)
+        self.clear_contacts_and_servers()
+
+        self.editContactButton.clicked.connect(self.set_contact_editable)
+
+        self.createContactButton.clicked.connect(self.create_or_update_contact)
+
+
+    def view_chat(self):
+        self.rightStack.setCurrentIndex(0)
+        self.leftStack.setCurrentIndex(0)
+
+    def view_contacts(self):
+        if self.rightStack.currentIndex() != 1:
+            self.rightStack.setCurrentIndex(1)
+        if self.leftStack.currentIndex() != 1:
+            self.leftStack.setCurrentIndex(1)
+
+    def view_servers(self):
+        if self.rightStack.currentIndex() != 2:
+            self.rightStack.setCurrentIndex(2)
+        if self.leftStack.currentIndex() != 2:
+            self.leftStack.setCurrentIndex(2)
 
     def change_font_type(self):
         (font, ok) = QtWidgets.QFontDialog.getFont(QtGui.QFont("Helvetica [Cronyx]", 10), self)
@@ -461,6 +497,121 @@ class GestureUi(QtWidgets.QMainWindow):
         self.usernameInput.setText(default_username)
         self.servernameInput.setText(default_section_name)
 
+    def clear_contacts_and_servers(self):
+        self.contactList.clear()
+        self.contactNameInput.clear()
+        self.contactSigningKeyInput.clear()
+        self.contactExchangeKeyInput.clear()
+        self.contactExchangeKeyInput.hide()
+        self.exchangeLabel.hide()
+        self.importContactKeysButton.setEnabled(False)
+        self.createContactButton.setEnabled(False)
+        self.addContactButton.setEnabled(False)
+        self.deleteContactButton.setEnabled(False)
+        self.editContactButton.setEnabled(False)
+
+    def load_contacts_and_servers(self):
+        self.exchangeLabel.show()
+        self.contactExchangeKeyInput.show()
+        self.importContactKeysButton.setEnabled(True)
+        self.createContactButton.setEnabled(True)
+        self.addContactButton.setEnabled(True)
+        self.deleteContactButton.setEnabled(False)
+        font = QtGui.QFont()
+        font.setFamily(u"Fira Sans")
+        font.setPointSize(14)
+        sorted_contacts = sorted([username for username in self.client.addressbook.identities.keys()])
+        for contact in sorted_contacts:
+            contact_item = QtWidgets.QListWidgetItem()
+            contact_item.setText(contact)
+            contact_item.setFont(font)
+            contact_item.setForeground(QtGui.QColor(QtGui.QColorConstants.White))
+            if self.client.check_id_is_server(self.client.addressbook.identities[contact]):
+                self.serverList.addItem(contact_item)
+            else:
+                self.contactList.addItem(contact_item)
+        self.contactList.setCurrentRow(0)
+
+    def view_contact_info(self):
+        self.contactNameInput.setReadOnly(True)
+        self.contactIdentityIdInput.setReadOnly(True)
+        self.editContactButton.setEnabled(True)
+        self.exchangeLabel.show()
+        self.createContactButton.setText(" Add ")
+        self.deleteContactButton.setText(" Delete ")
+        self.deleteContactButton.setEnabled(False)
+        self.contactExchangeKeyInput.show()
+        current_contact_name = self.contactList.currentItem().text()
+        self.contactNameInput.setText(current_contact_name)
+        contact_identity_id = self.client.get_id_from_username(current_contact_name)
+        ed_key, dh_key = self.client.get_PEM_keys(contact_identity_id)
+        self.contactSigningKeyInput.document().setPlainText(ed_key.decode())
+        self.contactExchangeKeyInput.document().setPlainText(dh_key.decode())
+        self.contactIdentityIdInput.setText(utils.encode_64(contact_identity_id))
+
+    def add_new_contact(self):
+        self.contactList.setEnabled(False)
+        self.contactList.setCurrentRow(self.contactList.currentRow(), QtCore.QItemSelectionModel().Deselect)
+        #self.editContactButton.setEnabled(True)
+        self.deleteContactButton.setText(" Cancel ")
+        self.deleteContactButton.setEnabled(True)
+
+        self.contactNameInput.clear()
+        self.contactNameInput.setReadOnly(False)
+
+        self.contactIdentityIdInput.clear()
+
+        self.contactSigningKeyInput.clear()
+        self.contactSigningKeyInput.setReadOnly(False)
+
+        self.contactExchangeKeyInput.clear()
+        self.contactExchangeKeyInput.setReadOnly(False)
+
+        self.contactNameInput.setFocus(True)
+
+    def create_or_update_contact(self):
+        if self.createContactButton.text() == " Update ":
+            current_row = self.contactList.currentRow()
+            name = self.contactNameInput.text()
+            contact_id = utils.decode_64(self.contactIdentityIdInput.text())
+            self.client.addressbook.update_contact_username(contact_id, name)
+            self.contactList.item(current_row).setText(name)
+            self.set_contact_editable()
+        else:
+            pass
+            """
+            name = self.contactNameInput.text()
+            sig_key = self.contactSigningKeyInput.toPlainText().encode()
+            dh_key = self.contactExchangeKeyInput.toPlainText().encode()
+            status = self.client.add_new_contact(name, sig_key, dh_key)
+            """
+
+
+    def set_contact_editable(self):
+        if self.editContactButton.text() == " Cancel ":
+            self.editContactButton.setText(" Edit ")
+            self.contactList.setEnabled(True)
+            self.contactNameInput.setReadOnly(True)
+            self.deleteContactButton.setEnabled(False)
+            self.createContactButton.setText(" Add ")
+        else:
+            self.contactList.setEnabled(False)
+            self.contactNameInput.setReadOnly(False)
+            self.deleteContactButton.setEnabled(True)
+            self.editContactButton.setText(" Cancel ")
+            self.createContactButton.setText(" Update ")
+
+    def delete_or_cancel_contact(self):
+        if self.deleteContactButton.text() == " Cancel ":
+            self.contactList.setEnabled(True)
+            if self.createContactButton.text() != " Update ":
+                self.contactList.setCurrentRow(0, QtCore.QItemSelectionModel().Select)
+            else:
+                self.deleteContactButton.setText(" Delete ")
+        else:
+            print("Delete unimplemented")
+
+
     def verify_username(self):
         pass
 
@@ -515,6 +666,7 @@ class GestureUi(QtWidgets.QMainWindow):
                         self.client.fetch_messages_from_server()
                         self.connectButton.setCheckable(True)
                         self.connectButton.setChecked(True)
+                        self.load_contacts_and_servers()
                     else:
                         self.errorPopup.showMessage(
                             "Remote server seems up but is not letting you login." \
@@ -528,6 +680,7 @@ class GestureUi(QtWidgets.QMainWindow):
                 else:
                     print(err)
         else:
+            self.clear_contacts_and_servers()
             self.updateTimer.stop()
             self.client.disconnect()
             self.connectionLabel.setText("Disconnected")

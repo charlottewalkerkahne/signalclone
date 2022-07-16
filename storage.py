@@ -59,7 +59,7 @@ def create_keystorage(cursor):
     cursor.execute('''CREATE TABLE ratchetstorage (session_id text, peer_id text, ratchet_info text)''')
 
 def create_addressbook(cursor):
-    cursor.execute('''CREATE TABLE addressbook (identity_id text, username text)''')
+    cursor.execute('''CREATE TABLE addressbook (identity_id text, username text, is_server integer)''')
 
 def create_serverstorage(cursor):
     cursor.execute('''CREATE TABLE serverstorage (dest_id text, message_bytes blob, message_number integer)''')
@@ -106,6 +106,7 @@ class AddressBook:
         self.local_username = local_username #might be None
         self.identities = {} #cache username: identity
         self.usernames = {} #cache  identity: username
+        self.is_a_server = {}#identity: bool
     def get_all_peer_ids(self):
         self.cursor.execute("SELECT * FROM addressbook")
         peer_list = self.cursor.fetchall()
@@ -113,19 +114,24 @@ class AddressBook:
             return None
         else:
             decoded_ids = []
-            for (id, username) in peer_list:
+            for (id, username, is_server) in peer_list:
                 decoded_id = utils.decode_64(id)
                 self.identities[username] = decoded_id
                 self.usernames[decoded_id] = username
+                self.is_a_server[decoded_id] = is_server == 1
                 decoded_ids.append(decoded_id)
             return decoded_ids
     def get_number_of_clients(self): #includes local user
         return self.cursor.rowcount()
     def set_active_username(self, username):
         self.local_username = username
-    def add_contact(self, identity_id, username):
+    def add_contact(self, identity_id, username, is_server=False):
         encoded_identity_id = encode_64(identity_id)
-        self.cursor.execute("INSERT INTO addressbook VALUES (?,?)", (encoded_identity_id, username))
+        if not is_server:
+            is_server = 0
+        else:
+            is_server = 1
+        self.cursor.execute("INSERT INTO addressbook VALUES (?,?, ?)", (encoded_identity_id, username, is_server))
         self.usernames[identity_id] = username
         self.identities[username] = identity_id
         self.sync()
@@ -142,6 +148,7 @@ class AddressBook:
             if old_username in self.identities:
                 del self.identities[old_username]
         self.sync()
+    """
     def update_contact_identity(self, new_identity_id, username):
         encoded_identity_id = encode_64(new_identity_id)
         self.cursor.execute("UPDATE addressbook SET identity_id=:identity_id WHERE username=:username",
@@ -154,6 +161,7 @@ class AddressBook:
             if old_identity in self.usernames:
                 del self.usernames[old_identity]
         self.sync()
+    """
     def fetch_username_by_id(self, identity_id):
         if identity_id in self.usernames:
             return self.usernames[identity_id]
@@ -162,7 +170,6 @@ class AddressBook:
                             {"identity_id":encoded_identity_id}
         )
         username_list = self.cursor.fetchall()
-        assert(len(username_list) <= 1)
         if len(username_list) == 1:
             username = username_list[0][0]
             #add to cache first
@@ -214,8 +221,8 @@ class KeyStorage:
         #if the key is an spk then key_bytes = concat(spk_bytes, spk_sig)
         #if identity_id is not local_id then key_bytes is a public_key
         key_type = key_type.lower()
-        encoded_identity_id = encode_64(identity_id)
-        encoded_key_id = encode_64(key_id)
+        encoded_identity_id = utils.encode_64(identity_id)
+        encoded_key_id = utils.encode_64(key_id)
         self.cursor.execute("INSERT INTO keystorage VALUES (?, ?, ?, ?)",
                             (encoded_identity_id, encoded_key_id, key_bytes, key_type))
         self.sync()
@@ -247,15 +254,19 @@ class KeyStorage:
         self.cursor.execute("UPDATE ratchetstorage SET ratchet_info=:ratchet_info WHERE session_id=:session_id",
                             {"session_id":encoded_id, "ratchet_info":ratchet_info})
         self.sync()
+    def delete_session(self, session_id):
+        encoded_id = utils.encode_64(session_id)
+        self.cursor.execute("DELETE FROM ratchetstorage WHERE session_id=:session_id",
+                            {"session_id":encoded_id})
+        self.sync()
     def fetch_by_id(self, identity_id, key_id):
-        encoded_identity_id = encode_64(identity_id)
-        encoded_key_id = encode_64(key_id)
+        encoded_identity_id = utils.encode_64(identity_id)
+        encoded_key_id = utils.encode_64(key_id)
         self.cursor.execute(
             "SELECT key_bytes FROM keystorage WHERE identity_id=:identity_id AND key_id=:key_id",
             {"identity_id":encoded_identity_id, "key_id":encoded_key_id}
         )
         key_list = self.cursor.fetchall()
-        assert(len(key_list) <= 1 and "Multiple keys found with a single key_id")
         if len(key_list) == 1:
             return key_list[0][0]
         else:

@@ -42,7 +42,7 @@ def get_client_storage_paths(testing_path, num_clients):
 #one clients keys to another. That isn't really an issue since
 #this is just for testing purposes and we won't be testing enough clients on a single machine for that
 #to be a problem
-def add_peer_info(local_handle, local_db, peer_handle, peer_db):
+def add_peer_info(local_handle, local_db, peer_handle, peer_db, peer_is_server):
     print("Adding {} keys to {} database".format(peer_handle, local_handle))
     local_ab = storage.AddressBook(local_handle, local_db)
     local_id = local_ab.fetch_id_by_username(local_handle)
@@ -60,7 +60,7 @@ def add_peer_info(local_handle, local_db, peer_handle, peer_db):
     peer_public_dh_bytes = crypto.get_dh_public_bytes(peer_identity_dh.public_key())
 
     #insert into addressbook
-    local_ab.add_contact(peer_id, peer_handle)
+    local_ab.add_contact(peer_id, peer_handle, peer_is_server)
     #insert into keystorage
     local_ks.insert_new_key(peer_id, peer_public_ed_bytes, peer_public_ed_bytes, "ed")
     local_ks.insert_new_key(peer_id, peer_public_dh_bytes, peer_public_dh_bytes, "dh")
@@ -81,7 +81,7 @@ def populate_for_testing(testing_path, num_clients=3):
     for local_handle, local_db in databases.items():
         for peer_handle, peer_db in databases.items():
             if peer_handle != local_handle:
-                add_peer_info(local_handle, local_db, peer_handle, peer_db)
+                    add_peer_info(local_handle, local_db, peer_handle, peer_db, peer_handle == server_handle)
 
 
 

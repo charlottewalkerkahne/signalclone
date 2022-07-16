@@ -30,6 +30,11 @@ class Client:
         self.directory = {}
         self.attachments = {}
 
+    def get_PEM_keys(self, identity_id):
+        ed_key = self.sock.keyring.peer_identity_ed_keys[identity_id]
+        dh_key = self.sock.keyring.peer_identity_dh_keys[identity_id]
+        return crypto.get_public_PEM_format(ed_key), crypto.get_public_PEM_format(dh_key)
+
     def connect_to_server(self, server_addr):
         peer_id = self.get_id_from_username(str(server_addr))
         try:
@@ -37,6 +42,17 @@ class Client:
             return None
         except Exception as err:
             return err
+"""
+    def add_new_contact(self, name, sig_key, dh_key):
+        if self.get_id_from_username(name) is not None:
+        else:
+            pub_sig_key = crypto.get_public_ed_key_from_bytes(sig_key, is_pem=True)
+            pub_dh_key = crypto.get_public_dh_key_from_bytes(dh_key, is_pem=True)
+            identity_id = crypto.get_identity_id(pub_sig_key, pub_dh_key)
+            if self.get_username_from_id(identity_id) is not None:
+            else:
+                pass
+"""
 
     def handshake_complete(self):
         peer_id = self.sock.connection_id
@@ -47,6 +63,9 @@ class Client:
 
     def get_id_from_username(self, username):
         return self.addressbook.fetch_id_by_username(username)
+
+    def check_id_is_server(self, id):
+        return self.addressbook.is_a_server[id]
 
     def get_convo_id_from_name(self, convo_id):
         return self.conversation_names[convo_id]
