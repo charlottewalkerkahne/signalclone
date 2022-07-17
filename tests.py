@@ -346,7 +346,212 @@ class TestKeyStorageMethods(unittest.TestCase):
         self.assertTrue(len(fetched_ratchets) == 0)
 
 
+class TestServerStorageMethods(unittest.TestCase):
+
+    def setUp(self):
+        self.client_storage = storage.ThreadSafeConnection(sqlite3.connect(":memory:"))
+        cur = self.client_storage.cursor().cursor  # get the underlying cursor from the threadsafe cursor
+        storage.create_serverstorage(cur)
+
+        # add keys to keystorage
+
+        # these can all be random because we aren't going to use them here
+        identity_id_1 = 'WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro='
+
+        user_1_message_1 = b'\x81\xc1";-\x90\xb5\x17\xd6\x93\x9c\xe7\xa0\x06v^\x06ZRM?\x08h\xcb\x96\x1a\xcd\x81\x9dw\xb7I'
+        user_1_message_2 = b'\xc79!\xd1r\xd4\x12\xcc\xb7\xc5Q\xc1Z\xcb\x8c\xd4\x13\x0b\xa0\xf0\x9ch\xed\xab]\xa1Dk\x14\x1afb'
+
+        identity_id_2 = 'zv+TT6sQMnUxmhSp7tCM9bU1VDRG5Va+FZfmpJZBjGs='
+
+        user_2_message_1 = b'\xd3\x95+d\x8f\x10\x8b\xbd\xc2V\xc6\xa8\x98\xe3\xe0\xe3\xb7bq\xb4\xa9J\x85\xf6\xd6=\xc8\xf2v\xf8\x90\x80'
+        user_2_message_2 = b'\xdb\x19VO\xa2\xfb\xa0\xe8\xdd\xca[\xb2\xb3(\xdd\xf3\x8c\xef\xfd\xd0{\x01sIO\xc3\x84\xf4N\x95\x12f'
 
 
 
+        self.message_list = [
+            (identity_id_1, user_1_message_1, 0),
+            (identity_id_1, user_1_message_2, 1),
+            (identity_id_2, user_2_message_1, 0),
+            (identity_id_2, user_2_message_2, 1)
+        ]
+        cur.executemany("INSERT INTO serverstorage values (?, ?, ?)", self.message_list)
+
+
+        self.serverstorage = storage.ServerStorage(identity_id_1, self.client_storage)
+
+        #make sure that the message count is initialized as well
+        self.serverstorage.message_count[utils.decode_64(identity_id_1)] = 2
+        self.serverstorage.message_count[utils.decode_64(identity_id_2)] = 2
+
+    def test_add_message(self):
+        new_message = b'\xeb*\x00\x14\x96\x19p\xd7\xf4H\xb3\xd2<\x940\xdd\xb6\xad!X\xcdu\x94\xa0\xc8\x14V\xc4\xce8\xa0~'
+        dest_id = 'WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro='
+
+        self.serverstorage.add_message(utils.decode_64(dest_id), new_message)
+
+        cur = self.client_storage.cursor().cursor
+
+        cur.execute("SELECT message_bytes FROM serverstorage WHERE dest_id=:encoded_id AND message_number=:num",
+                    {'encoded_id':dest_id, 'num':2})
+        message_bytes = cur.fetchall()
+        self.assertTrue(len(message_bytes) == 1)
+        self.assertEqual(message_bytes[0][0], new_message)
+
+    def test_fetch_messages(self):
+        user_2_message_2 = b'\xdb\x19VO\xa2\xfb\xa0\xe8\xdd\xca[\xb2\xb3(\xdd\xf3\x8c\xef\xfd\xd0{\x01sIO\xc3\x84\xf4N\x95\x12f'
+        user_2_message_1 = b'\xd3\x95+d\x8f\x10\x8b\xbd\xc2V\xc6\xa8\x98\xe3\xe0\xe3\xb7bq\xb4\xa9J\x85\xf6\xd6=\xc8\xf2v\xf8\x90\x80'
+
+        expected_message_list = [(user_2_message_1, 0), (user_2_message_2, 1)]
+
+        target_id = utils.decode_64('zv+TT6sQMnUxmhSp7tCM9bU1VDRG5Va+FZfmpJZBjGs=')
+
+        actual_message_list = self.serverstorage.fetch_messages(target_id)
+        self.assertEqual(actual_message_list, expected_message_list)
+
+
+    def test_delete_messages(self):
+        target_id = 'zv+TT6sQMnUxmhSp7tCM9bU1VDRG5Va+FZfmpJZBjGs='
+
+        self.assertTrue(self.serverstorage.message_count[utils.decode_64(target_id)] == 2)
+        self.serverstorage.delete_messages(utils.decode_64(target_id))
+        self.assertTrue(target_id not in self.serverstorage.message_count)
+
+        cur = self.client_storage.cursor().cursor
+        cur.execute("SELECT * FROM serverstorage WHERE dest_id=:encoded_id",
+                    {"encoded_id": target_id})
+
+        fetched = cur.fetchall()
+        self.assertTrue(len(fetched) == 0)
+
+
+
+class TestMessageStorageMethods(unittest.TestCase):
+
+    def setUp(self):
+        self.db_connection = storage.ThreadSafeConnection(sqlite3.connect(":memory:"))
+        cur = self.db_connection.cursor().cursor  # get the underlying cursor from the threadsafe cursor
+        storage.create_messagestorage(cur)
+
+        # add keys to keystorage
+
+        # these can all be random because we aren't going to use them here
+        identity_id_1 = 'WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro='
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+        message_text = "some message text"
+        timestamp = 12345.12345
+        message_id = 0
+        attachment_name = ""
+
+        participant_list = "'WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro=' 'KPk5TxSz5vRX1uq9XfyAJd7mDrrpxcJdGrko3GhUF/4='"
+
+        self.message_list = [
+            (identity_id_1, conversation_id, message_text, timestamp, message_id, attachment_name)
+        ]
+        cur.executemany("INSERT INTO messagestorage values (?, ?, ?, ?, ?, ?)", self.message_list)
+
+        cur.execute("INSERT INTO conversations values (?, ?, ?)",
+                    (conversation_id, participant_list, ""))
+
+        self.messagestorage = storage.MessageStorage(identity_id_1, self.db_connection)
+
+    def test_add_message(self):
+        source_id = 'FcPS6Hbp1DFAXVB4Ppcxk40Tr+tSxtTANUMw2dqxG2k='
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+        message_text = "message text"
+        timestamp = 123456.0
+        message_id = 1
+        attachment_name = ""
+
+        self.messagestorage.add_message(
+            utils.decode_64(source_id),
+            utils.decode_64(conversation_id),
+            message_text,
+            timestamp,
+            message_id,
+            attachment_name
+        )
+
+        cur = self.db_connection.cursor().cursor
+        cur.execute("SELECT * FROM messagestorage WHERE source_id='FcPS6Hbp1DFAXVB4Ppcxk40Tr+tSxtTANUMw2dqxG2k='")
+        fetched = cur.fetchall()
+        self.assertTrue(len(fetched) == 1)
+        actual_source, actual_convo, actual_msg_text, actual_timestamp, actual_id, actual_attachment_name = fetched[0]
+
+        self.assertEqual(actual_source, source_id)
+        self.assertEqual(actual_convo, conversation_id)
+        self.assertEqual(actual_msg_text, message_text)
+        self.assertEqual(actual_timestamp, timestamp)
+        self.assertEqual(actual_id, message_id)
+        self.assertEqual(actual_attachment_name, attachment_name)
+
+    def test_add_conversation(self):
+        conversation_id = '/LyTfopjAycD1tCE6OIqkIhW+vgKJOl9ahwRzwfGiEI='
+        participant_id_list = ['FcPS6Hbp1DFAXVB4Ppcxk40Tr+tSxtTANUMw2dqxG2k=', 'WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro=', 'ZGvCmVKk4pPl5uWgQACdalBw0WRaENAFhzKwXYILeDo=']
+        convo_name = "some conversation name"
+
+        self.messagestorage.add_conversation(
+            utils.decode_64(conversation_id),
+            [utils.decode_64(each) for each in participant_id_list],
+            convo_name
+        )
+
+        cur = self.db_connection.cursor().cursor
+        cur.execute("SELECT * FROM conversations WHERE conversation_id='/LyTfopjAycD1tCE6OIqkIhW+vgKJOl9ahwRzwfGiEI='")
+        fetched = cur.fetchall()
+        self.assertTrue(len(fetched) == 1)
+
+        actual_convo_id, actual_participant_id_list, actual_convo_name = fetched[0]
+        self.assertEqual(actual_convo_id, conversation_id)
+        self.assertEqual(actual_participant_id_list.split(' '), participant_id_list)
+        self.assertEqual(actual_convo_name, convo_name)
+
+    def test_get_conversation_list(self):
+        expected_convo_list = [(utils.decode_64('/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='),
+                                [utils.decode_64('WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro='), utils.decode_64('KPk5TxSz5vRX1uq9XfyAJd7mDrrpxcJdGrko3GhUF/4=')],
+                               "")]
+
+        actual_convo_list = self.messagestorage.get_conversation_list()
+
+        self.assertEqual(actual_convo_list, expected_convo_list)
+
+    def test_fetch_by_conversation(self):
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+
+        actual_message_list = self.messagestorage.fetch_by_conversation(utils.decode_64(conversation_id))
+
+        expected_message_list = [('WacZfdkQ+oKMI3vy/FbTUk2YV33kMs+d1bmE4Pk/5ro=', "some message text", 0, 12345.12345, "")]
+
+        self.assertEqual(actual_message_list, expected_message_list)
+
+    def test_fetch_by_id(self):
+        expected_text = "some message text"
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+
+        actual_text = self.messagestorage.fetch_by_id(utils.decode_64(conversation_id), 0)
+
+        self.assertEqual(actual_text, expected_text)
+
+    def test_remove_message(self):
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+        message_id = 0
+
+        self.messagestorage.remove_message(utils.decode_64(conversation_id), message_id)
+
+        cur = self.db_connection.cursor().cursor
+        cur.execute("SELECT * FROM messagestorage WHERE conversation_id='/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='")
+        messages = cur.fetchall()
+        self.assertTrue(len(messages) == 0)
+
+    def test_remove_conversation(self):
+        conversation_id = '/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='
+        self.messagestorage.remove_conversation(utils.decode_64(conversation_id))
+
+        cur = self.db_connection.cursor().cursor
+        cur.execute("SELECT * FROM conversations WHERE conversation_id='/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='")
+        conversations = cur.fetchall()
+        self.assertTrue(len(conversations) == 0)
+
+        cur.execute("SELECT * FROM messagestorage WHERE conversation_id='/dYKXuMljuVRSAdQ4oGw6dADbCaFjGlwxt5yY2zYlNk='")
+        messages = cur.fetchall()
+        self.assertTrue(len(messages) == 0)
 

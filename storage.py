@@ -324,7 +324,7 @@ class ServerStorage:
     #fetches all messages addressed to dest_id
     #message order should be handled by the application
     def fetch_messages(self, dest_id):
-        encoded_dest_id = b64encode(dest_id)
+        encoded_dest_id = utils.encode_64(dest_id)
         if dest_id in self.message_cache:
             messages = self.message_cache[dest_id]
             del self.message_cache[dest_id]
@@ -343,7 +343,7 @@ class ServerStorage:
     def delete_messages(self, dest_id):
         if dest_id in self.message_cache:
             del self.message_cache[dest_id]
-        encoded_dest_id = encode_64(dest_id)
+        encoded_dest_id = utils.encode_64(dest_id)
         self.cursor.execute("DELETE FROM serverstorage WHERE dest_id=:dest_id", {"dest_id": encoded_dest_id})
         self.message_count[dest_id] = 0
         self.sync()
@@ -374,12 +374,10 @@ class MessageStorage:
         self.sync()
     def add_conversation(self, conversation_id, participant_id_list, convo_name=None):
         encoded_conversation_id = encode_64(conversation_id)
-        encoded_participant_id_list = ' '.join(list(map(encode_64, participant_id_list)))
+        encoded_participant_id_list = ' '.join(list(map(utils.encode_64, participant_id_list)))
         self.cursor.execute("INSERT INTO conversations VALUES (?, ?, ?)",
                             (encoded_conversation_id, encoded_participant_id_list, convo_name))
         self.sync()
-    def fetch_by_source(self, source_id): #returns a list
-        pass
     def get_conversation_list(self):
         self.cursor.execute("SELECT * from conversations")
         conversation_list = self.cursor.fetchall()
@@ -404,12 +402,18 @@ class MessageStorage:
             return message_list
         else:
             return None
-    def fetch_by_id(self, conversation_id, message_id): #returns a single message
-        pass
-    def fetch_message_ids_from_session(self): #returns a list. Useful for deleting all messages in a session
-        pass
-    def save_attachment(self, conversation_id, message_id): #saves an attachment to disk
-        pass
+    def fetch_by_id(self, conversation_id, message_id): #returns a single message or None if none found
+        encoded_conversation_id = utils.encode_64(conversation_id)
+        self.cursor.execute(
+            "SELECT message from messagestorage WHERE conversation_id=:convo_id AND message_id=:msg_id",
+            {"convo_id": encoded_conversation_id, "msg_id": message_id}
+        )
+        message = self.cursor.fetchall()
+        if len(message) == 1:
+            return message[0][0]
+        else:
+            return None
+
     def remove_message(self, conversation_id, message_id):
         if conversation_id in self.conversation_cache:
             index = 0
@@ -423,6 +427,18 @@ class MessageStorage:
         self.cursor.execute(
             "DELETE FROM messagestorage WHERE conversation_id=:conversation_id AND message_id=:message_id",
             {"conversation_id":encoded_conversation_id, "message_id": message_id}
+        )
+        self.sync()
+
+    def remove_conversation(self, conversation_id):
+        encoded_conversation_id = utils.encode_64(conversation_id)
+        self.cursor.execute(
+            "DELETE FROM conversations WHERE conversation_id=:convo_id",
+            {"convo_id":encoded_conversation_id}
+        )
+        self.cursor.execute(
+            "DELETE FROM messagestorage WHERE conversation_id=:convo_id",
+            {"convo_id":encoded_conversation_id}
         )
         self.sync()
 
