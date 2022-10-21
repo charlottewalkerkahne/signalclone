@@ -1,5 +1,5 @@
 
-# A Python implementation of a chat server and client using the signal protocol.
+# A Python implementation of a chat server and client using the signal protocol. Currently not in a running state - have not had the time to fix it 
 
 ***
 ### Installation requirements
